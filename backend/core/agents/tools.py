@@ -1,23 +1,45 @@
 """Tools the assistant can call.
 
+Every tool reads the tenant from the server-side runtime context, never from its arguments.
+
 Tools raise ToolException for failures. With handle_tool_error=True the message goes back to the
 model as an error tool result, so the agent keeps running and can tell the user, instead of the
 whole chat stream failing. Messages are short and generic: no internals reach the model.
 """
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from html import escape
 
 from langchain.tools import ToolRuntime, tool
-from langchain_core.tools import ToolException
+from langchain_core.tools import BaseTool, ToolException
 from loguru import logger
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.agents.context import AgentContext
 from backend.core.db import get_sessionmaker
 from backend.core.models import Ticket
-from backend.core.tickets import find_tickets
+from backend.core.tickets import count_tickets, find_tickets, get_ticket, list_ticket_page
 
 SEARCH_LIMIT = 10
+LIST_PAGE_SIZE = 20
+
+
+@asynccontextmanager
+async def tool_session(tool_name: str, tenant_id: str) -> AsyncGenerator[AsyncSession]:
+    """A database session whose failures become ToolExceptions the model can read."""
+    try:
+        async with get_sessionmaker()() as session:
+            yield session
+    except ToolException:
+        raise
+    except SQLAlchemyError as error:
+        logger.exception("{} database error for tenant {}", tool_name, tenant_id)
+        raise ToolException(f"{tool_name} is unavailable right now. Try again later.") from error
+    except Exception as error:
+        logger.exception("{} failed for tenant {}", tool_name, tenant_id)
+        raise ToolException(f"{tool_name} failed.") from error
 
 
 def format_ticket(ticket: Ticket) -> str:
@@ -30,6 +52,13 @@ def format_ticket(ticket: Ticket) -> str:
     )
 
 
+def format_ticket_title(index: int, ticket: Ticket) -> str:
+    return (
+        f'<ticket index="{index}" id="{ticket.id}" status="{ticket.status}" priority="{ticket.priority}">'
+        f"{escape(ticket.title)}</ticket>"
+    )
+
+
 @tool
 async def search_tickets(query: str, runtime: ToolRuntime[AgentContext]) -> str:
     """Search the user's support tickets by words in the title or description.
@@ -37,17 +66,9 @@ async def search_tickets(query: str, runtime: ToolRuntime[AgentContext]) -> str:
     Args:
         query: Words to look for. Use an empty string to list the user's tickets.
     """
-    # The tenant comes from the server-side context, never from the model's arguments.
     tenant_id = runtime.context.tenant_id
-    try:
-        async with get_sessionmaker()() as session:
-            tickets = await find_tickets(session, tenant_id, query, SEARCH_LIMIT)
-    except SQLAlchemyError as error:
-        logger.exception("search_tickets database error for tenant {}", tenant_id)
-        raise ToolException("Ticket search is unavailable right now. Try again later.") from error
-    except Exception as error:
-        logger.exception("search_tickets failed for tenant {}", tenant_id)
-        raise ToolException("Ticket search failed.") from error
+    async with tool_session("search_tickets", tenant_id) as session:
+        tickets = await find_tickets(session, tenant_id, query, SEARCH_LIMIT)
     logger.info(
         "search_tickets tenant={} query={!r} -> ids {}", tenant_id, query, [ticket.id for ticket in tickets]
     )
@@ -56,7 +77,64 @@ async def search_tickets(query: str, runtime: ToolRuntime[AgentContext]) -> str:
     return "\n".join(format_ticket(ticket) for ticket in tickets)
 
 
-# ToolException -> error tool result for the model, instead of crashing the agent run.
-search_tickets.handle_tool_error = True
-# Arguments that don't match the schema (e.g. query is not a string) -> error tool result too.
-search_tickets.handle_validation_error = True
+@tool
+async def list_tickets(runtime: ToolRuntime[AgentContext], start_ticket: int = 0, end_ticket: int = 20) -> str:
+    """List the titles of the user's tickets, a page at a time, with the total count.
+
+    Tickets are numbered by index from 0, in a stable order. Returns at most 20 per call; use
+    the indexes in the result to ask for the next page. Use read_ticket to see a ticket's details.
+
+    Args:
+        start_ticket: Index of the first ticket to list (inclusive), from 0.
+        end_ticket: Index to stop before (exclusive). At most start_ticket + 20.
+    """
+    if start_ticket < 0 or end_ticket <= start_ticket:
+        raise ToolException("start_ticket must be >= 0 and end_ticket must be greater than start_ticket.")
+    
+    tenant_id = runtime.context.tenant_id
+    end = min(end_ticket, start_ticket + LIST_PAGE_SIZE)
+    async with tool_session("list_tickets", tenant_id) as session:
+        total = await count_tickets(session, tenant_id)
+        tickets = await list_ticket_page(session, tenant_id, offset=start_ticket, limit=end - start_ticket)
+    logger.info(
+        "list_tickets tenant={} range={}-{} total={} -> ids {}",
+        tenant_id, start_ticket, end, total, [ticket.id for ticket in tickets],
+    )
+
+    if not tickets:
+        return f"No tickets from index {start_ticket}. Total tickets: {total}."
+    
+    last = start_ticket + len(tickets)
+    header = f"Tickets {start_ticket}-{last - 1} of {total} total."
+    if last < total:
+        header += f" More available: call list_tickets with start_ticket={last}."
+    
+    lines = [format_ticket_title(start_ticket + offset, ticket) for offset, ticket in enumerate(tickets)]
+    return "\n".join([header, *lines])
+
+
+@tool
+async def read_ticket(ticket_id: int, runtime: ToolRuntime[AgentContext]) -> str:
+    """Read one of the user's tickets in full: title, description, status and priority.
+
+    Args:
+        ticket_id: The ticket id (the `id` attribute, not the list index).
+    """
+    tenant_id = runtime.context.tenant_id
+    async with tool_session("read_ticket", tenant_id) as session:
+        ticket = await get_ticket(session, tenant_id, ticket_id)
+    logger.info("read_ticket tenant={} id={} -> {}", tenant_id, ticket_id, "found" if ticket else "not found")
+    
+    if ticket is None:
+        # Same answer for "doesn't exist" and "another tenant's": no hint that other tenants' ids exist.
+        return f"Ticket {ticket_id} not found."
+    return format_ticket(ticket)
+
+
+TOOLS: list[BaseTool] = [search_tickets, list_tickets, read_ticket]
+
+for _tool in TOOLS:
+    # ToolException -> error tool result for the model, instead of crashing the agent run.
+    _tool.handle_tool_error = True
+    # Arguments that don't match the schema (e.g. a non-integer id) -> error tool result too.
+    _tool.handle_validation_error = True

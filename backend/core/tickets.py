@@ -1,6 +1,6 @@
 """Tenant-scoped ticket queries. Every function takes the tenant; there is no unscoped access."""
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.models import Tenant, Ticket
@@ -13,6 +13,23 @@ async def tenant_exists(session: AsyncSession, tenant_id: str) -> bool:
 async def list_tickets(session: AsyncSession, tenant_id: str) -> list[Ticket]:
     result = await session.scalars(select(Ticket).where(Ticket.tenant_id == tenant_id).order_by(Ticket.id))
     return list(result)
+
+
+async def count_tickets(session: AsyncSession, tenant_id: str) -> int:
+    count = await session.scalar(select(func.count()).select_from(Ticket).where(Ticket.tenant_id == tenant_id))
+    return count or 0
+
+
+async def list_ticket_page(session: AsyncSession, tenant_id: str, offset: int, limit: int) -> list[Ticket]:
+    """Tenant's tickets ordered by id, from position `offset` (0-based), at most `limit`."""
+    statement = select(Ticket).where(Ticket.tenant_id == tenant_id).order_by(Ticket.id).offset(offset).limit(limit)
+    result = await session.scalars(statement)
+    return list(result)
+
+
+async def get_ticket(session: AsyncSession, tenant_id: str, ticket_id: int) -> Ticket | None:
+    """The ticket, or None if it doesn't exist *or* belongs to another tenant (indistinguishable)."""
+    return await session.scalar(select(Ticket).where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id))
 
 
 async def find_tickets(session: AsyncSession, tenant_id: str, query: str, limit: int) -> list[Ticket]:
