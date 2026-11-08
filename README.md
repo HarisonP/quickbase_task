@@ -37,7 +37,7 @@ uv run poe test
 
 ```bash
 uv run poe db               # start Postgres (docker compose)
-uv run poe migrate          # create the tables
+uv run poe migrate          # create our tables (Alembic) + the LangGraph checkpointer's tables
 uv run poe import_tickets   # import data/tickets.json (existing ids are skipped)
 ```
 

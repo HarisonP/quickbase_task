@@ -10,6 +10,7 @@ dependencies = [
     "langchain>=1.0,<2.0",
     "langchain-openai>=1.7.2",
     "langfuse>=5.0.4",
+    "langgraph-checkpoint-postgres>=3.2.0",
     "loguru>=0.7.3",
     "psycopg[binary,pool]>=3.3.8",
     "sqlalchemy[asyncio]>=2.1.8",
@@ -72,5 +73,9 @@ typecheck = "mypy backend/api backend/app backend/core"
 test = "pytest tests/"
 run_server_dev = "python -m backend.app.application --reload"
 db = "docker compose up -d --wait db"
-migrate = "alembic upgrade head"
+# Our tables (Alembic), then the LangGraph checkpointer's own tables.
+migrate = { sequence = [
+    { cmd = "alembic upgrade head" },
+    { cmd = "python -m backend.scripts.setup_checkpointer" },
+] }
 import_tickets = "python -m backend.scripts.import_tickets"

@@ -4,6 +4,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware, ToolCallLimitMiddleware
 from langchain_core.language_models import BaseChatModel
 from langfuse.langchain import CallbackHandler
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from backend.core.agents.context import AgentContext
@@ -35,12 +36,14 @@ TOOL_CALL_LIMITS = {
 RECURSION_LIMIT = 50
 
 
-def build_assistant(model: BaseChatModel) -> CompiledStateGraph:
+def build_assistant(model: BaseChatModel, checkpointer: BaseCheckpointSaver) -> CompiledStateGraph:
     agent = create_agent(
         model=model,
         tools=TOOLS,
         system_prompt=SYSTEM_PROMPT,
         context_schema=AgentContext,
+        # Saves each conversation's state under its thread_id: memory now, approval pauses in 3b.
+        checkpointer=checkpointer,
         middleware=[
             # After MODEL_CALL_LIMIT model calls, end the run with a closing AI message.
             ModelCallLimitMiddleware(run_limit=MODEL_CALL_LIMIT, exit_behavior="end"),

@@ -1,5 +1,6 @@
-"""Database models: tenants and their tickets."""
+"""Database models: tenants, their tickets, and their chat conversations."""
 
+import uuid
 from datetime import datetime
 from enum import StrEnum
 
@@ -21,6 +22,11 @@ class TicketPriority(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+
+
+class MessageRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
 
 
 def _in_values(column: str, enum: type[StrEnum]) -> str:
@@ -54,4 +60,27 @@ class Ticket(Base):
     description: Mapped[str] = mapped_column(Text)
     status: Mapped[TicketStatus] = mapped_column(_enum_column(TicketStatus))
     priority: Mapped[TicketPriority] = mapped_column(_enum_column(TicketPriority))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Conversation(Base):
+    """A chat conversation owned by one tenant. Its id is also the LangGraph thread_id."""
+
+    __tablename__ = "conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Message(Base):
+    """A saved chat message: the user's message or the agent's final answer (no tool traffic)."""
+
+    __tablename__ = "messages"
+    __table_args__ = (CheckConstraint(_in_values("role", MessageRole), name="ck_messages_role"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    role: Mapped[MessageRole] = mapped_column(_enum_column(MessageRole))
+    content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

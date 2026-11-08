@@ -30,8 +30,8 @@ LIST_PAGE_SIZE = 20
 async def tool_session(tool_name: str, tenant_id: str) -> AsyncGenerator[AsyncSession]:
     """A database session whose failures become ToolExceptions the model can read."""
     try:
-        async with get_sessionmaker()() as session:
-            yield session
+        async with get_sessionmaker()() as db_session:
+            yield db_session
     except ToolException:
         raise
     except SQLAlchemyError as error:
@@ -67,8 +67,8 @@ async def search_tickets(query: str, runtime: ToolRuntime[AgentContext]) -> str:
         query: Words to look for. Use an empty string to list the user's tickets.
     """
     tenant_id = runtime.context.tenant_id
-    async with tool_session("search_tickets", tenant_id) as session:
-        tickets = await find_tickets(session, tenant_id, query, SEARCH_LIMIT)
+    async with tool_session("search_tickets", tenant_id) as db_session:
+        tickets = await find_tickets(db_session,tenant_id, query, SEARCH_LIMIT)
     logger.info(
         "search_tickets tenant={} query={!r} -> ids {}", tenant_id, query, [ticket.id for ticket in tickets]
     )
@@ -93,9 +93,9 @@ async def list_tickets(runtime: ToolRuntime[AgentContext], start_ticket: int = 0
     
     tenant_id = runtime.context.tenant_id
     end = min(end_ticket, start_ticket + LIST_PAGE_SIZE)
-    async with tool_session("list_tickets", tenant_id) as session:
-        total = await count_tickets(session, tenant_id)
-        tickets = await list_ticket_page(session, tenant_id, offset=start_ticket, limit=end - start_ticket)
+    async with tool_session("list_tickets", tenant_id) as db_session:
+        total = await count_tickets(db_session,tenant_id)
+        tickets = await list_ticket_page(db_session,tenant_id, offset=start_ticket, limit=end - start_ticket)
     logger.info(
         "list_tickets tenant={} range={}-{} total={} -> ids {}",
         tenant_id, start_ticket, end, total, [ticket.id for ticket in tickets],
@@ -121,8 +121,8 @@ async def read_ticket(ticket_id: int, runtime: ToolRuntime[AgentContext]) -> str
         ticket_id: The ticket id (the `id` attribute, not the list index).
     """
     tenant_id = runtime.context.tenant_id
-    async with tool_session("read_ticket", tenant_id) as session:
-        ticket = await get_ticket(session, tenant_id, ticket_id)
+    async with tool_session("read_ticket", tenant_id) as db_session:
+        ticket = await get_ticket(db_session,tenant_id, ticket_id)
     logger.info("read_ticket tenant={} id={} -> {}", tenant_id, ticket_id, "found" if ticket else "not found")
     
     if ticket is None:

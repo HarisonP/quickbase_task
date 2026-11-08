@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.api import dependencies
 from backend.api import tickets as tickets_api
 from backend.app.main import app
 from backend.core.db import get_session
@@ -35,13 +36,13 @@ TICKETS_BY_TENANT = {
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    async def fake_tenant_exists(session: object, tenant_id: str) -> bool:
+    async def fake_tenant_exists(db_session: object, tenant_id: str) -> bool:
         return tenant_id in TICKETS_BY_TENANT
 
-    async def fake_list_tickets(session: object, tenant_id: str) -> list[Ticket]:
+    async def fake_list_tickets(db_session: object, tenant_id: str) -> list[Ticket]:
         return TICKETS_BY_TENANT[tenant_id]
 
-    monkeypatch.setattr(tickets_api, "tenant_exists", fake_tenant_exists)
+    monkeypatch.setattr(dependencies, "tenant_exists", fake_tenant_exists)
     monkeypatch.setattr(tickets_api, "list_tickets", fake_list_tickets)
     app.dependency_overrides[get_session] = lambda: None
     yield TestClient(app)

@@ -19,5 +19,5 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
-    async with get_sessionmaker()() as session:
-        yield session
+    async with get_sessionmaker()() as db_session:
+        yield db_session
