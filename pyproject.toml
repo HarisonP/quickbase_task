@@ -1,0 +1,70 @@
+[project]
+name = "python-service"
+version = "0.1.0"
+description = "A FastAPI service skeleton"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "langchain>=1.0,<2.0",
+    "langchain-openai>=1.7.2",
+    "langfuse>=5.0.4",
+    "loguru>=0.7.3",
+    "uvicorn[standard]>=0.34.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.0",
+    "ipykernel>=7.4.0",
+    "mypy>=1.14.0",
+    "poethepoet>=0.32.0",
+    "pytest>=8.3.0",
+    "ruff>=0.9.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["prod"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends"]
+
+[tool.mypy]
+python_version = "3.13"
+mypy_path = "."
+plugins = ["pydantic.mypy"]
+check_untyped_defs = true
+warn_unused_configs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+strict_equality = true
+no_implicit_optional = true
+show_error_codes = true
+pretty = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[[tool.mypy.overrides]]
+module = ["langchain.*", "langchain_core.*", "langchain_openai.*", "langgraph.*", "langfuse.*"]
+follow_imports = "skip"
+
+[tool.poe.tasks]
+lint = "ruff check prod/api prod/app prod/core"
+typecheck = "mypy prod/api prod/app prod/core"
+test = "pytest tests/"
+run_server_dev = "python -m prod.app.application --reload"
