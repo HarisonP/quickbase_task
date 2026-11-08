@@ -5,7 +5,7 @@ A FastAPI service skeleton.
 ## Layout
 
 ```
-prod/
+backend/
   api/routes.py        HTTP routes (mounted under /api)
   app/main.py          FastAPI app
   app/lifespan.py      startup / shutdown hooks

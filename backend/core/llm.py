@@ -5,7 +5,7 @@ from functools import lru_cache
 
 from langchain_openai import ChatOpenAI
 
-from prod.core.config import DEFAULT_OPENAI_MODEL
+from backend.core.config import DEFAULT_OPENAI_MODEL
 
 
 @lru_cache(maxsize=1)

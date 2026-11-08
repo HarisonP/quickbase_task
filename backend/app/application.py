@@ -4,7 +4,7 @@ import argparse
 
 import uvicorn
 
-from prod.core.config import HOST, PORT
+from backend.core.config import HOST, PORT
 
 
 def main() -> None:
@@ -18,12 +18,12 @@ def main() -> None:
 
     # Reload needs the app as an import string so uvicorn can re-import it.
     uvicorn.run(
-        "prod.app.main:app",
+        "backend.app.main:app",
         host=args.host,
         port=args.port,
         reload=args.reload,
         env_file=".env",
-        reload_dirs=["prod"] if args.reload else None,
+        reload_dirs=["backend"] if args.reload else None,
     )
 
 

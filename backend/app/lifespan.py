@@ -7,8 +7,8 @@ from fastapi import FastAPI
 from langfuse import get_client
 from loguru import logger
 
-from prod.core.agents.assistant import build_assistant
-from prod.core.llm import get_llm
+from backend.core.agents.assistant import build_assistant
+from backend.core.llm import get_llm
 
 
 @asynccontextmanager

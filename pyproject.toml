@@ -28,7 +28,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["prod"]
+packages = ["backend"]
 
 [tool.ruff]
 line-length = 120
@@ -64,7 +64,7 @@ module = ["langchain.*", "langchain_core.*", "langchain_openai.*", "langgraph.*"
 follow_imports = "skip"
 
 [tool.poe.tasks]
-lint = "ruff check prod/api prod/app prod/core"
-typecheck = "mypy prod/api prod/app prod/core"
+lint = "ruff check backend/api backend/app backend/core"
+typecheck = "mypy backend/api backend/app backend/core"
 test = "pytest tests/"
-run_server_dev = "python -m prod.app.application --reload"
+run_server_dev = "python -m backend.app.application --reload"
