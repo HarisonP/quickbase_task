@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from loguru import logger
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +28,7 @@ class TicketResponse(BaseModel):
 async def get_tenant_id(x_tenant_id: str = Header(), session: AsyncSession = Depends(get_session)) -> str:
     """Stand-in for real auth: the X-Tenant-ID header names the caller's tenant."""
     if not await tenant_exists(session, x_tenant_id):
+        logger.warning("Rejected request for unknown tenant {!r}", x_tenant_id)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Unknown tenant")
     return x_tenant_id
 
@@ -37,4 +39,5 @@ async def get_tickets(
 ) -> list[TicketResponse]:
     """All tickets of the caller's tenant."""
     tickets = await list_tickets(session, tenant_id)
+    logger.info("Listed {} tickets for tenant {}", len(tickets), tenant_id)
     return [TicketResponse.model_validate(ticket) for ticket in tickets]
