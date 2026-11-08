@@ -10,17 +10,26 @@ whole chat stream failing. Messages are short and generic: no internals reach th
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from html import escape
+from typing import Literal
 
 from langchain.tools import ToolRuntime, tool
 from langchain_core.tools import BaseTool, ToolException
 from loguru import logger
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.agents.context import AgentContext
 from backend.core.db import get_sessionmaker
-from backend.core.models import Ticket
-from backend.core.tickets import count_tickets, find_tickets, get_ticket, list_ticket_page
+from backend.core.models import Ticket, TicketPriority, TicketStatus
+from backend.core.tickets import (
+    count_tickets,
+    delete_ticket,
+    find_tickets,
+    get_ticket,
+    list_ticket_page,
+    update_ticket,
+)
 
 SEARCH_LIMIT = 10
 LIST_PAGE_SIZE = 20
@@ -131,7 +140,60 @@ async def read_ticket(ticket_id: int, runtime: ToolRuntime[AgentContext]) -> str
     return format_ticket(ticket)
 
 
-TOOLS: list[BaseTool] = [search_tickets, list_tickets, read_ticket]
+class TicketFields(BaseModel):
+    """The ticket fields an update may change. Anything else (id, tenant_id, ...) is rejected."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, min_length=1)
+    status: TicketStatus | None = None
+    priority: TicketPriority | None = None
+
+
+@tool
+async def mutate_ticket(
+    ticket_id: int,
+    action: Literal["update", "delete"],
+    runtime: ToolRuntime[AgentContext],
+    fields: TicketFields | None = None,
+) -> str:
+    """Update or delete one of the user's tickets. The user must approve every call before it runs.
+
+    Args:
+        ticket_id: The ticket id (the `id` attribute, not the list index).
+        action: "update" to change fields, "delete" to remove the ticket.
+        fields: For "update" only: the fields to change and their new values.
+    """
+    # Runs only after the user approved it (HumanInTheLoopMiddleware pauses the agent before this).
+    changes = fields.model_dump(exclude_none=True) if fields else {}
+    if action == "update" and not changes:
+        raise ToolException("An update needs at least one field to change.")
+    if action == "delete" and changes:
+        raise ToolException("A delete takes no fields.")
+        
+    tenant_id = runtime.context.tenant_id
+    async with tool_session("mutate_ticket", tenant_id) as db_session:
+        # The tenant check is inside the UPDATE/DELETE: another tenant's ticket matches no row.
+        if action == "update":
+            done = await update_ticket(db_session, tenant_id, ticket_id, changes)
+        else:
+            done = await delete_ticket(db_session, tenant_id, ticket_id)
+    
+    logger.info(
+        "mutate_ticket tenant={} id={} action={} fields={} -> {}",
+        tenant_id, ticket_id, action, sorted(changes), "done" if done else "not found",
+    )
+
+    if not done:
+        # Same answer as read_ticket for "doesn't exist" and "another tenant's".
+        return f"Ticket {ticket_id} not found."
+    if action == "delete":
+        return f"Ticket {ticket_id} deleted."
+    return f"Ticket {ticket_id} updated: {', '.join(sorted(changes))}."
+
+
+TOOLS: list[BaseTool] = [search_tickets, list_tickets, read_ticket, mutate_ticket]
 
 for _tool in TOOLS:
     # ToolException -> error tool result for the model, instead of crashing the agent run.

@@ -1,6 +1,8 @@
 """Tenant-scoped ticket queries. Every function takes the tenant; there is no unscoped access."""
 
-from sqlalchemy import func, or_, select
+from typing import Any
+
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.models import Tenant, Ticket
@@ -30,6 +32,30 @@ async def list_ticket_page(db_session: AsyncSession, tenant_id: str, offset: int
 async def get_ticket(db_session: AsyncSession, tenant_id: str, ticket_id: int) -> Ticket | None:
     """The ticket, or None if it doesn't exist *or* belongs to another tenant (indistinguishable)."""
     return await db_session.scalar(select(Ticket).where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id))
+
+
+async def update_ticket(db_session: AsyncSession, tenant_id: str, ticket_id: int, changes: dict[str, Any]) -> bool:
+    """Apply `changes` to the ticket. False if it doesn't exist *or* belongs to another tenant.
+
+    The tenant check is part of the UPDATE itself, so there is no gap between checking and writing.
+    """
+    statement = (
+        update(Ticket)
+        .where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id)
+        .values(**changes)
+        .returning(Ticket.id)
+    )
+    updated = await db_session.scalar(statement)
+    await db_session.commit()
+    return updated is not None
+
+
+async def delete_ticket(db_session: AsyncSession, tenant_id: str, ticket_id: int) -> bool:
+    """Delete the ticket. False if it doesn't exist *or* belongs to another tenant."""
+    statement = delete(Ticket).where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id).returning(Ticket.id)
+    deleted = await db_session.scalar(statement)
+    await db_session.commit()
+    return deleted is not None
 
 
 async def find_tickets(db_session: AsyncSession, tenant_id: str, query: str, limit: int) -> list[Ticket]:
