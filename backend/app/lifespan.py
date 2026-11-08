@@ -8,6 +8,7 @@ from langfuse import get_client
 from loguru import logger
 
 from backend.core.agents.assistant import build_assistant
+from backend.core.db import get_engine
 from backend.core.llm import get_llm
 
 
@@ -21,4 +22,5 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     finally:
         # Traces are sent in the background; send what is left before exiting.
         get_client().shutdown()
+        await get_engine().dispose()
         logger.info("Application stopped")
