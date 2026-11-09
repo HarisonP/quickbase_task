@@ -178,6 +178,49 @@ button:disabled {
   white-space: pre-wrap;
 }
 
+/* Markdown in the assistant's answers */
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 20px;
+}
+
+.markdown code {
+  padding: 1px 4px;
+  background: var(--panel);
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.markdown pre {
+  padding: 8px;
+  overflow-x: auto;
+  background: var(--panel);
+  border-radius: 6px;
+}
+
+.markdown pre code {
+  padding: 0;
+}
+
+.markdown table {
+  border-collapse: collapse;
+}
+
+.markdown th,
+.markdown td {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
 .composer {
   display: flex;
   gap: 8px;

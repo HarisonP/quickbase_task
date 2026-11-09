@@ -9,7 +9,9 @@ import {
   ThreadPrimitive,
   useLocalRuntime,
 } from "@assistant-ui/react";
+import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { useEffect, useMemo, useState } from "react";
+import remarkGfm from "remark-gfm";
 
 import { listMessages, type Tenant } from "../api";
 import { createAdapter } from "./adapter";
@@ -71,6 +73,12 @@ function ChatThread({ tenant, conversationId, history }: ChatProps & { history: 
 
 const Text: TextMessagePartComponent = ({ text }) => <p className="message-text">{text}</p>;
 
+// The assistant's answers as markdown (GitHub flavour: tables, lists, ...). Raw HTML in the text is
+// not rendered, so HTML copied from a ticket into an answer can't inject anything into the page.
+const MarkdownText: TextMessagePartComponent = () => (
+  <MarkdownTextPrimitive className="markdown" remarkPlugins={[remarkGfm]} />
+);
+
 function UserMessage() {
   return (
     <MessagePrimitive.Root className="message user">
@@ -83,7 +91,10 @@ function AssistantMessage() {
   return (
     <MessagePrimitive.Root className="message assistant">
       <MessagePrimitive.Parts
-        components={{ Text, tools: { by_name: { mutate_ticket: MutateTicketCall }, Fallback: ToolCall } }}
+        components={{
+          Text: MarkdownText,
+          tools: { by_name: { mutate_ticket: MutateTicketCall }, Fallback: ToolCall },
+        }}
       />
     </MessagePrimitive.Root>
   );
