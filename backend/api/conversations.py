@@ -23,6 +23,7 @@ from backend.core.agents.context import AgentContext
 from backend.core.conversations import (
     add_message,
     create_conversation,
+    delete_conversation,
     get_conversation,
     list_conversations,
     list_messages,
@@ -133,7 +134,7 @@ def tool_events_from(update: dict[str, Any]) -> list[ServerSentEvent]:
     a call blocked by a tool call limit). The same call can show up twice (the approval middleware
     re-emits the model's message), so clients key calls by id.
     """
-    events = []
+    events: list[ServerSentEvent] = []
     for node_output in update.values():
         if not isinstance(node_output, dict):
             continue
@@ -278,6 +279,20 @@ async def get_conversations(
     """The caller's conversations, newest first."""
     conversations = await list_conversations(db_session, tenant_id)
     return [ConversationResponse.model_validate(conversation) for conversation in conversations]
+
+
+@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_conversation(
+    conversation: Conversation = Depends(get_owned_conversation),
+    db_session: AsyncSession = Depends(get_session),
+    agent: CompiledStateGraph = Depends(get_agent),
+) -> None:
+    """Delete the conversation: its messages, and the agent's saved state for it (the LangGraph thread)."""
+    # The checkpoint first: if that fails, the conversation is still listed and can be deleted again.
+    await agent.checkpointer.adelete_thread(str(conversation.id))
+    await delete_conversation(db_session, conversation.tenant_id, conversation.id)
+
+    logger.info("Deleted conversation {} (tenant {})", conversation.id, conversation.tenant_id)
 
 
 @router.get("/{conversation_id}/messages")

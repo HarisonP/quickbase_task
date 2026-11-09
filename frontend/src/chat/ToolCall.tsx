@@ -79,10 +79,10 @@ function ApprovalModal({ args, onDecide }: { args: MutateArgs; onDecide: (approv
       )}
 
       <div className="approval-buttons">
-        <button className="reject" disabled={sending} onClick={() => decide(false)}>
+        <button type="button" className="reject" disabled={sending} onClick={() => decide(false)}>
           Reject
         </button>
-        <button className="approve" disabled={sending} onClick={() => decide(true)}>
+        <button type="button" className="approve" disabled={sending} onClick={() => decide(true)}>
           Approve
         </button>
       </div>

@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "typecheck": "tsc",
+    "lint": "biome check",
+    "format": "biome check --write",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -16,6 +18,7 @@
     "react-dom": "19.3.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.3.0",

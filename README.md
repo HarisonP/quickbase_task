@@ -41,6 +41,11 @@ it reads the SSE stream from `/chat` and, after you decide in the modal, sends t
 uv run poe lint
 uv run poe typecheck
 uv run poe test
+
+cd frontend
+npm run lint          # Biome: lint + formatting check
+npm run format        # Biome: apply fixes and formatting
+npm run typecheck
 ```
 
 ## Database

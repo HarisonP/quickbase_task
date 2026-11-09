@@ -44,7 +44,7 @@ body {
 
 .app-panes {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 200px 1fr 1fr;
   gap: 12px;
   flex: 1;
   min-height: 0;
@@ -69,6 +69,74 @@ body {
 .error {
   color: var(--error);
   padding: 0 12px;
+}
+
+/* Buttons: the base style. It comes before the more specific button rules below, so they override it. */
+button,
+.composer-send {
+  padding: 8px 14px;
+  font: inherit;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Conversations sidebar */
+.conversations {
+  gap: 8px;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.conversations ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.conversation {
+  display: flex;
+  margin-bottom: 4px;
+  border-radius: 6px;
+}
+
+.conversation:hover {
+  background: var(--bg);
+}
+
+.conversation.selected {
+  background: var(--accent);
+}
+
+.conversation button {
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.conversation.selected button {
+  color: white;
+}
+
+.conversation-open {
+  flex: 1;
+  text-align: left;
+}
+
+.conversation-delete {
+  padding: 8px 10px;
+  opacity: 0.5;
+}
+
+.conversation-delete:hover {
+  opacity: 1;
 }
 
 /* Chat */
@@ -124,22 +192,6 @@ body {
   font: inherit;
   border: 1px solid var(--border);
   border-radius: 6px;
-}
-
-button,
-.composer-send {
-  padding: 8px 14px;
-  font: inherit;
-  border: none;
-  border-radius: 6px;
-  background: var(--accent);
-  color: white;
-  cursor: pointer;
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 /* Tool-call trace */

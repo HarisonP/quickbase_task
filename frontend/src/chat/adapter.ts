@@ -100,7 +100,7 @@ class ContentBuilder {
         return false;
 
       case "approval_required":
-        this.requestApprovals(event.data.actions.map((action) => action.tool));
+        this.requestApprovals(event.data.actions);
         return true;
 
       case "error":
@@ -152,19 +152,34 @@ class ContentBuilder {
   }
 
   /** Marks the calls waiting for approval: the first unanswered call of each action's tool, in order. */
-  private requestApprovals(toolNames: string[]) {
-    for (const toolName of toolNames) {
+  private requestApprovals(actions: { tool: string; args: unknown }[]) {
+    for (const action of actions) {
       const index = this.parts.findIndex(
         (part) =>
           part.type === "tool-call" &&
-          part.toolName === toolName &&
+          part.toolName === action.tool &&
           part.result === undefined &&
           part.approval === undefined,
       );
-      if (index === -1) continue;
 
-      const part = this.parts[index] as ToolCallMessagePart;
-      this.parts = this.parts.map((p, i) => (i === index ? { ...part, approval: { id: part.toolCallId } } : p));
+      if (index !== -1) {
+        const part = this.parts[index] as ToolCallMessagePart;
+        this.parts = this.parts.map((p, i) => (i === index ? { ...part, approval: { id: part.toolCallId } } : p));
+        continue;
+      }
+
+      // Not streamed in this run: a reopened conversation that was already waiting (the backend
+      // re-sends the pending approval). Show the call from the event, so it can be decided.
+      const id = crypto.randomUUID();
+      const part: ToolCallMessagePart = {
+        type: "tool-call",
+        toolCallId: id,
+        toolName: action.tool,
+        args: action.args as ToolCallMessagePart["args"],
+        argsText: JSON.stringify(action.args),
+        approval: { id },
+      };
+      this.parts = [...this.parts, part];
     }
   }
 

@@ -1,29 +1,75 @@
-/** One screen: the ticket board on the left (next step), the chat on the right. */
+/** One screen: conversations on the side, the ticket board (next step), and the chat. */
 
 import { useEffect, useState } from "react";
 
-import { createConversation, type Tenant, TENANTS } from "./api";
+import {
+  type Conversation,
+  createConversation,
+  deleteConversation,
+  listConversations,
+  TENANTS,
+  type Tenant,
+} from "./api";
+import { ConversationList } from "./ConversationList";
 import { Chat } from "./chat/Chat";
 
 export function App() {
   const [tenant, setTenant] = useState<Tenant>("acme");
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // A new conversation for every tenant switch: conversations belong to one tenant.
+  // On a tenant switch: load its conversations and open the newest (or a new one if it has none).
   useEffect(() => {
     let cancelled = false;
-    setConversationId(null);
+    setConversations([]);
+    setSelectedId(null);
     setError(null);
 
-    createConversation(tenant)
-      .then((id) => !cancelled && setConversationId(id))
-      .catch((reason: unknown) => !cancelled && setError(String(reason)));
+    const load = async () => {
+      let list = await listConversations(tenant);
+      if (list.length === 0) list = [await createConversation(tenant)];
+
+      if (cancelled) return;
+      setConversations(list);
+      setSelectedId(list[0].id);
+    };
+    load().catch((reason: unknown) => !cancelled && setError(String(reason)));
 
     return () => {
       cancelled = true;
     };
   }, [tenant]);
+
+  const startConversation = async () => {
+    try {
+      const conversation = await createConversation(tenant);
+
+      setConversations((list) => [conversation, ...list]);
+      setSelectedId(conversation.id);
+    } catch (reason) {
+      setError(String(reason));
+    }
+  };
+
+  const removeConversation = async (id: string) => {
+    if (!window.confirm("Delete this chat?")) return;
+
+    try {
+      await deleteConversation(tenant, id);
+    } catch (reason) {
+      setError(String(reason));
+      return;
+    }
+
+    const remaining = conversations.filter((conversation) => conversation.id !== id);
+    setConversations(remaining);
+
+    // Deleted the open chat: open the next one, or start a new chat if none is left.
+    if (id !== selectedId) return;
+    if (remaining.length > 0) setSelectedId(remaining[0].id);
+    else await startConversation();
+  };
 
   return (
     <div className="app">
@@ -40,14 +86,22 @@ export function App() {
       </header>
 
       <main className="app-panes">
+        <ConversationList
+          conversations={conversations}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          onNew={startConversation}
+          onDelete={removeConversation}
+        />
+
         <section className="pane board-pane">
           <p className="placeholder">Ticket board: coming next.</p>
         </section>
 
         <section className="pane chat-pane">
-          {error && <p className="error">Could not start a conversation: {error}</p>}
-          {/* key: a new conversation gets a fresh chat state */}
-          {conversationId && <Chat key={conversationId} tenant={tenant} conversationId={conversationId} />}
+          {error && <p className="error">{error}</p>}
+          {/* key: switching conversation remounts the chat with that conversation's history */}
+          {selectedId && <Chat key={selectedId} tenant={tenant} conversationId={selectedId} />}
         </section>
       </main>
     </div>

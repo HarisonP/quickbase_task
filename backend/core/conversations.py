@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.models import Conversation, Message, MessageRole
@@ -29,6 +29,19 @@ async def get_conversation(
     """The conversation, or None if it doesn't exist *or* belongs to another tenant (indistinguishable)."""
     statement = select(Conversation).where(Conversation.id == conversation_id, Conversation.tenant_id == tenant_id)
     return await db_session.scalar(statement)
+
+
+async def delete_conversation(db_session: AsyncSession, tenant_id: str, conversation_id: uuid.UUID) -> bool:
+    """Delete the conversation and its messages (ON DELETE CASCADE). False if not the tenant's."""
+    statement = (
+        delete(Conversation)
+        .where(Conversation.id == conversation_id, Conversation.tenant_id == tenant_id)
+        .returning(Conversation.id)
+    )
+    deleted = await db_session.scalar(statement)
+
+    await db_session.commit()
+    return deleted is not None
 
 
 async def list_messages(db_session: AsyncSession, tenant_id: str, conversation_id: uuid.UUID) -> list[Message]:
