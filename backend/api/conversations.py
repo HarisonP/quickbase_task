@@ -8,7 +8,7 @@ from typing import Any, Literal
 import openai
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
@@ -126,6 +126,40 @@ def approval_event(conversation: Conversation, actions: list[dict[str, Any]]) ->
     )
 
 
+def tool_events_from(update: dict[str, Any]) -> list[ServerSentEvent]:
+    """The tool-call trace in an `updates` event: what the model called, and what came back.
+
+    Scans every node, not just "tools": middleware also adds tool results (a rejected approval,
+    a call blocked by a tool call limit). The same call can show up twice (the approval middleware
+    re-emits the model's message), so clients key calls by id.
+    """
+    events = []
+    for node_output in update.values():
+        if not isinstance(node_output, dict):
+            continue
+        for message in node_output.get("messages", []):
+            if isinstance(message, AIMessage):
+                events.extend(
+                    ServerSentEvent(
+                        event="tool_call", data={"id": call["id"], "tool": call["name"], "args": call["args"]}
+                    )
+                    for call in message.tool_calls
+                )
+            elif isinstance(message, ToolMessage):
+                events.append(
+                    ServerSentEvent(
+                        event="tool_result",
+                        data={
+                            "id": message.tool_call_id,
+                            "tool": message.name,
+                            "content": message.text,
+                            "status": message.status,
+                        },
+                    )
+                )
+    return events
+
+
 def final_answer_from(update: dict[str, Any]) -> str | None:
     """The text of the last finished AI answer in an `updates` event, if there is one.
 
@@ -150,7 +184,8 @@ async def stream_run(
     user_message: str | None,
 ) -> AsyncIterator[ServerSentEvent]:
     """Run the agent on the conversation's thread and stream it as SSE events:
-    `token`*, then one of `done`, `approval_required` (the run paused) or `error`.
+    `token`, `tool_call` and `tool_result` as they happen, then one of `done`,
+    `approval_required` (the run paused) or `error`.
 
     Saves `user_message` first (if given) and the final answer once the run finishes, using the
     request's database session. (Tools open their own: parallel tool calls must not share one.)
@@ -181,6 +216,8 @@ async def stream_run(
                     for interrupt in payload["__interrupt__"]:
                         approval_actions.extend(actions_from(interrupt.value))
                 else:
+                    for event in tool_events_from(payload):
+                        yield event
                     final_answer = final_answer_from(payload) or final_answer
         if approval_actions:
             # Paused: save the approval request, so the history shows what was asked. The final

@@ -16,14 +16,24 @@ backend/
   core/models.py       SQLAlchemy models
 migrations/            Alembic migrations
 tests/                 pytest tests
+frontend/              React chat UI (Vite + assistant-ui)
 ```
 
 ## Running
 
 ```bash
 uv sync
-uv run poe run_server_dev     # http://127.0.0.1:8000/api/health
+uv run poe run_server_dev                      # backend on :8000 (http://127.0.0.1:8000/api/health)
+cd frontend && npm install && npm run dev      # http://localhost:5173 (proxies /api to :8000)
 ```
+
+## Frontend
+
+A React app built on [assistant-ui](https://www.assistant-ui.com). It shows the agent's streamed answers,
+a trace of every tool call (with its arguments and result), and an approval modal that blocks the
+change until you approve or reject it. `src/chat/adapter.ts` connects assistant-ui to the backend:
+it reads the SSE stream from `/chat` and, after you decide in the modal, sends the decision to
+`/resume`. The tenant switcher sends `X-Tenant-ID` with every request.
 
 ## Development
 
