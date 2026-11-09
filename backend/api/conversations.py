@@ -121,7 +121,9 @@ def error_event(message: str) -> ServerSentEvent:
 
 
 def approval_event(conversation: Conversation, actions: list[dict[str, Any]]) -> ServerSentEvent:
-    return ServerSentEvent(event="approval_required", data={"conversation_id": str(conversation.id), "actions": actions})
+    return ServerSentEvent(
+        event="approval_required", data={"conversation_id": str(conversation.id), "actions": actions}
+    )
 
 
 def final_answer_from(update: dict[str, Any]) -> str | None:
@@ -214,7 +216,9 @@ async def stream_run(
         yield error_event("The agent failed to answer.")
         return
     if approval_actions:
-        logger.info("Conversation {} (tenant {}) waits for approval of {}", conversation.id, tenant_id, approval_actions)
+        logger.info(
+            "Conversation {} (tenant {}) waits for approval of {}", conversation.id, tenant_id, approval_actions
+        )
         yield approval_event(conversation, approval_actions)
         return
     logger.info("Chat answer finished in conversation {} (tenant {})", conversation.id, tenant_id)
@@ -293,7 +297,8 @@ async def resume(
             status.HTTP_422_UNPROCESSABLE_CONTENT, f"Expected {len(actions)} decisions, got {len(body.decisions)}."
         )
     logger.info(
-        "Resume in conversation {} (tenant {}): {} for {}", conversation.id, conversation.tenant_id, body.decisions, actions
+        "Resume in conversation {} (tenant {}): {} for {}",
+        conversation.id, conversation.tenant_id, body.decisions, actions,
     )
     decisions = [
         {"type": "approve"} if decision == "approve" else {"type": "reject", "message": REJECTION_MESSAGE}
