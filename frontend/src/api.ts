@@ -61,11 +61,23 @@ export type Ticket = {
   created_at: string;
 };
 
+/** The fields the user sets; the server assigns the id and created_at. */
+export type TicketFields = Pick<Ticket, "title" | "description" | "status" | "priority">;
+
 /** Only the fields that change: PATCH is a partial update, so other fields stay as they are. */
-export type TicketChanges = Partial<Pick<Ticket, "title" | "description" | "status" | "priority">>;
+export type TicketChanges = Partial<TicketFields>;
 
 export function listTickets(tenant: Tenant): Promise<Ticket[]> {
   return get(tenant, "/api/tickets");
+}
+
+export async function createTicket(tenant: Tenant, fields: TicketFields): Promise<Ticket> {
+  const response = await post(tenant, "/api/tickets", fields);
+  return response.json();
+}
+
+export async function deleteTicket(tenant: Tenant, ticketId: number): Promise<void> {
+  await ensureOk(await fetch(`/api/tickets/${ticketId}`, { method: "DELETE", headers: headers(tenant) }));
 }
 
 export async function updateTicket(tenant: Tenant, ticketId: number, changes: TicketChanges): Promise<Ticket> {

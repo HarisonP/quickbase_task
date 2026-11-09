@@ -148,6 +148,12 @@ button:disabled {
   padding: 10px;
 }
 
+.board-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
 .board-columns {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -287,6 +293,12 @@ button:disabled {
   color: var(--text);
 }
 
+/* Pushed to the left, away from Save, so it isn't clicked by mistake. */
+.editor .danger {
+  margin-right: auto;
+  background: var(--error);
+}
+
 /* Chat */
 .thread {
   display: flex;
@@ -356,6 +368,12 @@ button:disabled {
 
 .markdown pre code {
   padding: 0;
+}
+
+.markdown .blocked-image {
+  color: var(--muted);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
 }
 
 .markdown table {

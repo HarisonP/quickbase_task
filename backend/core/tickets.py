@@ -23,6 +23,17 @@ class TicketFields(BaseModel):
     priority: TicketPriority | None = None
 
 
+class NewTicket(BaseModel):
+    """The fields of a new ticket. The id, tenant and created_at are set by the server, never by the caller."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1)
+    status: TicketStatus = TicketStatus.OPEN
+    priority: TicketPriority = TicketPriority.MEDIUM
+
+
 async def tenant_exists(db_session: AsyncSession, tenant_id: str) -> bool:
     return await db_session.get(Tenant, tenant_id) is not None
 
@@ -47,6 +58,17 @@ async def list_ticket_page(db_session: AsyncSession, tenant_id: str, offset: int
 async def get_ticket(db_session: AsyncSession, tenant_id: str, ticket_id: int) -> Ticket | None:
     """The ticket, or None if it doesn't exist *or* belongs to another tenant (indistinguishable)."""
     return await db_session.scalar(select(Ticket).where(Ticket.id == ticket_id, Ticket.tenant_id == tenant_id))
+
+
+async def create_ticket(db_session: AsyncSession, tenant_id: str, fields: NewTicket) -> Ticket:
+    """Create a ticket owned by `tenant_id`. The database assigns its id and created_at."""
+    ticket = Ticket(tenant_id=tenant_id, **fields.model_dump())
+    db_session.add(ticket)
+    await db_session.commit()
+
+    # Load the values the database generated (id, created_at).
+    await db_session.refresh(ticket)
+    return ticket
 
 
 async def update_ticket(db_session: AsyncSession, tenant_id: str, ticket_id: int, changes: dict[str, Any]) -> bool:

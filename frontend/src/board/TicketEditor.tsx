@@ -1,21 +1,25 @@
-/** The edit form for one ticket, in a native modal <dialog>. Saves only the fields that changed. */
+/** The form for a new ticket or an existing one, in a native modal <dialog>. */
 
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
-import { PRIORITIES, STATUSES, type Ticket, type TicketChanges, type TicketPriority, type TicketStatus } from "../api";
+import { PRIORITIES, STATUSES, type Ticket, type TicketFields, type TicketPriority, type TicketStatus } from "../api";
 
 type Props = {
-  ticket: Ticket;
-  onSave: (changes: TicketChanges) => Promise<void>;
+  /** null: a new ticket. */
+  ticket: Ticket | null;
+  /** Gets every field of the form; the board works out what changed. */
+  onSubmit: (fields: TicketFields) => Promise<void>;
+  /** Only for an existing ticket. */
+  onDelete?: () => Promise<void>;
   onClose: () => void;
 };
 
-export function TicketEditor({ ticket, onSave, onClose }: Props) {
+export function TicketEditor({ ticket, onSubmit, onDelete, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [title, setTitle] = useState(ticket.title);
-  const [description, setDescription] = useState(ticket.description);
-  const [status, setStatus] = useState<TicketStatus>(ticket.status);
-  const [priority, setPriority] = useState<TicketPriority>(ticket.priority);
+  const [title, setTitle] = useState(ticket?.title ?? "");
+  const [description, setDescription] = useState(ticket?.description ?? "");
+  const [status, setStatus] = useState<TicketStatus>(ticket?.status ?? "open");
+  const [priority, setPriority] = useState<TicketPriority>(ticket?.priority ?? "medium");
 
   useEffect(() => {
     dialog.current?.showModal();
@@ -24,21 +28,20 @@ export function TicketEditor({ ticket, onSave, onClose }: Props) {
   const submit = async (event: FormEvent) => {
     event.preventDefault();
 
-    const changes: TicketChanges = {};
-    if (title !== ticket.title) changes.title = title;
-    if (description !== ticket.description) changes.description = description;
-    if (status !== ticket.status) changes.status = status;
-    if (priority !== ticket.priority) changes.priority = priority;
-
     onClose();
-    if (Object.keys(changes).length > 0) await onSave(changes);
+    await onSubmit({ title, description, status, priority });
+  };
+
+  const remove = async () => {
+    onClose();
+    await onDelete?.();
   };
 
   return (
     // onClose: also fires when Escape closes the dialog.
     <dialog ref={dialog} className="editor" onClose={onClose}>
       <form onSubmit={submit}>
-        <h2>Ticket #{ticket.id}</h2>
+        <h2>{ticket ? `Ticket #${ticket.id}` : "New ticket"}</h2>
 
         <label>
           Title
@@ -71,10 +74,15 @@ export function TicketEditor({ ticket, onSave, onClose }: Props) {
         </div>
 
         <div className="editor-buttons">
+          {onDelete && (
+            <button type="button" className="danger" onClick={remove}>
+              Delete
+            </button>
+          )}
           <button type="button" className="secondary" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit">Save</button>
+          <button type="submit">{ticket ? "Save" : "Create"}</button>
         </div>
       </form>
     </dialog>

