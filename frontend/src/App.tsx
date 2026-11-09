@@ -1,6 +1,6 @@
-/** One screen: conversations on the side, the ticket board (next step), and the chat. */
+/** One screen: conversations on the side, the ticket board, and the chat. */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   type Conversation,
@@ -10,6 +10,7 @@ import {
   TENANTS,
   type Tenant,
 } from "./api";
+import { Board } from "./board/Board";
 import { ConversationList } from "./ConversationList";
 import { Chat } from "./chat/Chat";
 
@@ -18,6 +19,10 @@ export function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Bumped when the agent changed a ticket: the board reloads. Stable callback, so the chat's
+  // adapter isn't recreated on every render.
+  const [boardVersion, setBoardVersion] = useState(0);
+  const ticketsChanged = useCallback(() => setBoardVersion((version) => version + 1), []);
 
   // On a tenant switch: load its conversations and open the newest (or a new one if it has none).
   useEffect(() => {
@@ -95,13 +100,15 @@ export function App() {
         />
 
         <section className="pane board-pane">
-          <p className="placeholder">Ticket board: coming next.</p>
+          <Board tenant={tenant} version={boardVersion} />
         </section>
 
         <section className="pane chat-pane">
           {error && <p className="error">{error}</p>}
           {/* key: switching conversation remounts the chat with that conversation's history */}
-          {selectedId && <Chat key={selectedId} tenant={tenant} conversationId={selectedId} />}
+          {selectedId && (
+            <Chat key={selectedId} tenant={tenant} conversationId={selectedId} onTicketsChanged={ticketsChanged} />
+          )}
         </section>
       </main>
     </div>

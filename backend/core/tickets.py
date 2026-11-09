@@ -2,10 +2,25 @@
 
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.core.models import Tenant, Ticket
+from backend.core.models import Tenant, Ticket, TicketPriority, TicketStatus
+
+
+class TicketFields(BaseModel):
+    """The ticket fields a change may set. Anything else (id, tenant_id, ...) is rejected.
+
+    Shared by the agent's mutate_ticket tool and the board's PATCH endpoint: one set of rules.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, min_length=1)
+    status: TicketStatus | None = None
+    priority: TicketPriority | None = None
 
 
 async def tenant_exists(db_session: AsyncSession, tenant_id: str) -> bool:

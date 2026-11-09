@@ -22,7 +22,8 @@ import { type ChatEvent, type Decision, streamChat, streamResume, type Tenant } 
 
 const REQUIRES_APPROVAL = { type: "requires-action", reason: "tool-calls" } as const;
 
-export function createAdapter(tenant: Tenant, conversationId: string): ChatModelAdapter {
+/** `onTicketsChanged`: called when mutate_ticket returns, so the board can reload the tickets. */
+export function createAdapter(tenant: Tenant, conversationId: string, onTicketsChanged: () => void): ChatModelAdapter {
   // Approvals whose decision was already sent to /resume (a message can pause more than once).
   const answered = new Set<string>();
 
@@ -38,6 +39,8 @@ export function createAdapter(tenant: Tenant, conversationId: string): ChatModel
 
       const content = new ContentBuilder(current);
       for await (const event of events) {
+        if (event.event === "tool_result" && event.data.tool === "mutate_ticket") onTicketsChanged();
+
         const paused = content.apply(event);
         yield paused ? { content: content.parts, status: REQUIRES_APPROVAL } : { content: content.parts };
       }

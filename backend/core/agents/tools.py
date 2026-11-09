@@ -15,14 +15,14 @@ from typing import Literal
 from langchain.tools import ToolRuntime, tool
 from langchain_core.tools import BaseTool, ToolException
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.agents.context import AgentContext
 from backend.core.db import get_sessionmaker
-from backend.core.models import Ticket, TicketPriority, TicketStatus
+from backend.core.models import Ticket
 from backend.core.tickets import (
+    TicketFields,
     count_tickets,
     delete_ticket,
     find_tickets,
@@ -138,17 +138,6 @@ async def read_ticket(ticket_id: int, runtime: ToolRuntime[AgentContext]) -> str
         # Same answer for "doesn't exist" and "another tenant's": no hint that other tenants' ids exist.
         return f"Ticket {ticket_id} not found."
     return format_ticket(ticket)
-
-
-class TicketFields(BaseModel):
-    """The ticket fields an update may change. Anything else (id, tenant_id, ...) is rejected."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    title: str | None = Field(default=None, min_length=1, max_length=200)
-    description: str | None = Field(default=None, min_length=1)
-    status: TicketStatus | None = None
-    priority: TicketPriority | None = None
 
 
 @tool

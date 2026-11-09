@@ -17,10 +17,10 @@ import { listMessages, type Tenant } from "../api";
 import { createAdapter } from "./adapter";
 import { MutateTicketCall, ToolCall } from "./ToolCall";
 
-type ChatProps = { tenant: Tenant; conversationId: string };
+type ChatProps = { tenant: Tenant; conversationId: string; onTicketsChanged: () => void };
 
 /** Loads the conversation's saved messages, then shows the chat starting from them. */
-export function Chat({ tenant, conversationId }: ChatProps) {
+export function Chat({ tenant, conversationId, onTicketsChanged }: ChatProps) {
   const [history, setHistory] = useState<ThreadMessageLike[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,11 +41,16 @@ export function Chat({ tenant, conversationId }: ChatProps) {
 
   if (error) return <p className="error">Could not load the conversation: {error}</p>;
   if (!history) return <p className="placeholder">Loading…</p>;
-  return <ChatThread tenant={tenant} conversationId={conversationId} history={history} />;
+  return (
+    <ChatThread tenant={tenant} conversationId={conversationId} onTicketsChanged={onTicketsChanged} history={history} />
+  );
 }
 
-function ChatThread({ tenant, conversationId, history }: ChatProps & { history: ThreadMessageLike[] }) {
-  const adapter = useMemo(() => createAdapter(tenant, conversationId), [tenant, conversationId]);
+function ChatThread({ tenant, conversationId, onTicketsChanged, history }: ChatProps & { history: ThreadMessageLike[] }) {
+  const adapter = useMemo(
+    () => createAdapter(tenant, conversationId, onTicketsChanged),
+    [tenant, conversationId, onTicketsChanged],
+  );
   // initialMessages is read once: the runtime keeps the chat state from then on.
   const runtime = useLocalRuntime(adapter, { initialMessages: history });
 

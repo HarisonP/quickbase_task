@@ -46,6 +46,35 @@ async function* readEvents(response: Response): AsyncGenerator<ChatEvent> {
   }
 }
 
+export const STATUSES = ["open", "in_progress", "closed"] as const;
+export type TicketStatus = (typeof STATUSES)[number];
+
+export const PRIORITIES = ["low", "medium", "high"] as const;
+export type TicketPriority = (typeof PRIORITIES)[number];
+
+export type Ticket = {
+  id: number;
+  title: string;
+  description: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  created_at: string;
+};
+
+/** Only the fields that change: PATCH is a partial update, so other fields stay as they are. */
+export type TicketChanges = Partial<Pick<Ticket, "title" | "description" | "status" | "priority">>;
+
+export function listTickets(tenant: Tenant): Promise<Ticket[]> {
+  return get(tenant, "/api/tickets");
+}
+
+export async function updateTicket(tenant: Tenant, ticketId: number, changes: TicketChanges): Promise<Ticket> {
+  const request = { method: "PATCH", headers: headers(tenant), body: JSON.stringify(changes) };
+  const response = await ensureOk(await fetch(`/api/tickets/${ticketId}`, request));
+
+  return response.json();
+}
+
 export type Conversation = { id: string; created_at: string };
 
 /** A saved chat message: the user's messages and the agent's final answers (no tool calls). */
