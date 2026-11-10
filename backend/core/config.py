@@ -6,7 +6,7 @@ from sqlalchemy import make_url
 
 DEFAULT_OPENAI_MODEL = "gpt-6-luna"
 DEFAULT_DATABASE_URL = "postgresql+psycopg://app:app@localhost:5432/app"
-APP_TITLE = "Python Service"
+APP_TITLE = "Ticket Assistant"
 HOST = "127.0.0.1"
 PORT = 8000
 

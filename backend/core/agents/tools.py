@@ -77,7 +77,7 @@ async def search_tickets(query: str, runtime: ToolRuntime[AgentContext]) -> str:
     """
     tenant_id = runtime.context.tenant_id
     async with tool_session("search_tickets", tenant_id) as db_session:
-        tickets = await find_tickets(db_session,tenant_id, query, SEARCH_LIMIT)
+        tickets = await find_tickets(db_session, tenant_id, query, SEARCH_LIMIT)
     logger.info(
         "search_tickets tenant={} query={!r} -> ids {}", tenant_id, query, [ticket.id for ticket in tickets]
     )
@@ -99,12 +99,12 @@ async def list_tickets(runtime: ToolRuntime[AgentContext], start_ticket: int = 0
     """
     if start_ticket < 0 or end_ticket <= start_ticket:
         raise ToolException("start_ticket must be >= 0 and end_ticket must be greater than start_ticket.")
-    
+
     tenant_id = runtime.context.tenant_id
     end = min(end_ticket, start_ticket + LIST_PAGE_SIZE)
     async with tool_session("list_tickets", tenant_id) as db_session:
-        total = await count_tickets(db_session,tenant_id)
-        tickets = await list_ticket_page(db_session,tenant_id, offset=start_ticket, limit=end - start_ticket)
+        total = await count_tickets(db_session, tenant_id)
+        tickets = await list_ticket_page(db_session, tenant_id, offset=start_ticket, limit=end - start_ticket)
     logger.info(
         "list_tickets tenant={} range={}-{} total={} -> ids {}",
         tenant_id, start_ticket, end, total, [ticket.id for ticket in tickets],
@@ -112,12 +112,12 @@ async def list_tickets(runtime: ToolRuntime[AgentContext], start_ticket: int = 0
 
     if not tickets:
         return f"No tickets from index {start_ticket}. Total tickets: {total}."
-    
+
     last = start_ticket + len(tickets)
     header = f"Tickets {start_ticket}-{last - 1} of {total} total."
     if last < total:
         header += f" More available: call list_tickets with start_ticket={last}."
-    
+
     lines = [format_ticket_title(start_ticket + offset, ticket) for offset, ticket in enumerate(tickets)]
     return "\n".join([header, *lines])
 
@@ -131,9 +131,9 @@ async def read_ticket(ticket_id: int, runtime: ToolRuntime[AgentContext]) -> str
     """
     tenant_id = runtime.context.tenant_id
     async with tool_session("read_ticket", tenant_id) as db_session:
-        ticket = await get_ticket(db_session,tenant_id, ticket_id)
+        ticket = await get_ticket(db_session, tenant_id, ticket_id)
     logger.info("read_ticket tenant={} id={} -> {}", tenant_id, ticket_id, "found" if ticket else "not found")
-    
+
     if ticket is None:
         # Same answer for "doesn't exist" and "another tenant's": no hint that other tenants' ids exist.
         return f"Ticket {ticket_id} not found."
@@ -160,7 +160,7 @@ async def mutate_ticket(
         raise ToolException("An update needs at least one field to change.")
     if action == "delete" and changes:
         raise ToolException("A delete takes no fields.")
-        
+
     tenant_id = runtime.context.tenant_id
     async with tool_session("mutate_ticket", tenant_id) as db_session:
         # The tenant check is inside the UPDATE/DELETE: another tenant's ticket matches no row.
@@ -168,7 +168,7 @@ async def mutate_ticket(
             done = await update_ticket(db_session, tenant_id, ticket_id, changes)
         else:
             done = await delete_ticket(db_session, tenant_id, ticket_id)
-    
+
     logger.info(
         "mutate_ticket tenant={} id={} action={} fields={} -> {}",
         tenant_id, ticket_id, action, sorted(changes), "done" if done else "not found",
