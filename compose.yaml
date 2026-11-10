@@ -1,3 +1,14 @@
+# `docker compose up --build` runs everything: open http://localhost:5173.
+# `uv run poe db` starts only the database, for local development.
+
+# Shared by `setup` and `backend`: one image, the settings from .env, and the database inside compose.
+x-backend: &backend
+  build: .
+  image: ticket-assistant-backend
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+
 services:
   db:
     image: postgres:17
@@ -13,6 +24,34 @@ services:
       test: ["CMD-SHELL", "pg_isready -U app -d app"]
       interval: 5s
       retries: 5
+
+  # Runs once and exits: our tables, the checkpointer's tables, then the seed tickets. All safe to repeat.
+  setup:
+    <<: *backend
+    command: >
+      sh -c "alembic upgrade head
+      && python -m backend.scripts.setup_checkpointer
+      && python -m backend.scripts.import_tickets"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    <<: *backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  frontend:
+    build: frontend
+    environment:
+      API_PROXY_TARGET: http://backend:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:
