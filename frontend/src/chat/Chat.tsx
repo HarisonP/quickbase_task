@@ -46,7 +46,12 @@ export function Chat({ tenant, conversationId, onTicketsChanged }: ChatProps) {
   );
 }
 
-function ChatThread({ tenant, conversationId, onTicketsChanged, history }: ChatProps & { history: ThreadMessageLike[] }) {
+function ChatThread({
+  tenant,
+  conversationId,
+  onTicketsChanged,
+  history,
+}: ChatProps & { history: ThreadMessageLike[] }) {
   const adapter = useMemo(
     () => createAdapter(tenant, conversationId, onTicketsChanged),
     [tenant, conversationId, onTicketsChanged],

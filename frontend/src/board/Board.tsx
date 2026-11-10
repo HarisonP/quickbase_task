@@ -191,6 +191,7 @@ function DraggableCard({ ticket, onOpen }: { ticket: Ticket; onOpen: (ticket: Ti
   const { setNodeRef, attributes, listeners, isDragging } = useDraggable({ id: ticket.id });
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: dnd-kit's `attributes` add role="button" and tabIndex.
     <div
       ref={setNodeRef}
       {...attributes}
