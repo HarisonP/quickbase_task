@@ -44,6 +44,10 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends"]
 
+[tool.pytest.ini_options]
+# Test files mirror backend/, so names repeat (api/test_tickets.py, core/test_tickets.py).
+addopts = "--import-mode=importlib"
+
 [tool.mypy]
 python_version = "3.13"
 mypy_path = "."
