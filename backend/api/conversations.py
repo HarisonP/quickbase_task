@@ -1,7 +1,7 @@
 """Conversation routes: create, list, history, chat and approval resume (SSE). All tenant-scoped."""
 
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
@@ -211,7 +211,10 @@ def events_from_updates(payload: dict[str, Any]) -> Iterator[ServerSentEvent]:
 
 
 # Open for extension: a new stream mode (e.g. "custom" for progress) is one translator + one entry.
-STREAM_TRANSLATORS = {"messages": events_from_messages, "updates": events_from_updates}
+STREAM_TRANSLATORS: dict[str, Callable[[Any], Iterator[ServerSentEvent]]] = {
+    "messages": events_from_messages,
+    "updates": events_from_updates,
+}
 
 
 async def run_agent(
