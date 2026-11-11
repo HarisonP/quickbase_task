@@ -1,14 +1,15 @@
 """Conversation routes: create, list, history, chat and approval resume (SSE). All tenant-scoped."""
 
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
 import openai
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolCall, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
@@ -121,146 +122,178 @@ def error_event(message: str) -> ServerSentEvent:
     return ServerSentEvent(event="error", data={"message": message})
 
 
+def failure_message(error: Exception, conversation_id: uuid.UUID) -> str:
+    """Log a failed run and return the message for the client's `error` event.
+
+    Most specific first: the order matters where classes overlap (RateLimitError is an
+    APIStatusError, APITimeoutError an APIConnectionError). Anything unexpected falls to the end.
+    """
+    match error:
+        case openai.RateLimitError():
+            logger.warning("OpenAI rate limit hit")
+            return "Rate limited, try again."
+        case openai.APIConnectionError():
+            logger.opt(exception=error).error("Could not reach OpenAI")
+            return "LLM provider unreachable."
+        case openai.APIStatusError(status_code=code, message=message):
+            logger.error("OpenAI returned {}: {}", code, message)
+            return "LLM provider error."
+        case GraphRecursionError():
+            logger.warning("Agent hit the recursion limit in conversation {}", conversation_id)
+            return "The agent took too many steps and was stopped. Try a simpler request."
+        case SQLAlchemyError():
+            logger.opt(exception=error).error("Database error in conversation {}", conversation_id)
+            return "Could not save the conversation."
+        case _:
+            logger.opt(exception=error).error("Agent stream failed in conversation {}", conversation_id)
+            return "The agent failed to answer."
+
+
 def approval_event(conversation: Conversation, actions: list[dict[str, Any]]) -> ServerSentEvent:
     return ServerSentEvent(
         event="approval_required", data={"conversation_id": str(conversation.id), "actions": actions}
     )
 
 
-def tool_events_from(update: dict[str, Any]) -> list[ServerSentEvent]:
-    """The tool-call trace in an `updates` event: what the model called, and what came back.
+def token_event(text: str) -> ServerSentEvent:
+    return ServerSentEvent(event="token", data={"content": text})
+
+
+def tool_call_event(call: ToolCall) -> ServerSentEvent:
+    return ServerSentEvent(event="tool_call", data={"id": call["id"], "tool": call["name"], "args": call["args"]})
+
+
+def tool_result_event(message: ToolMessage) -> ServerSentEvent:
+    return ServerSentEvent(
+        event="tool_result",
+        data={"id": message.tool_call_id, "tool": message.name, "content": message.text, "status": message.status},
+    )
+
+
+def events_from_messages(payload: tuple[BaseMessage, dict[str, Any]]) -> Iterator[ServerSentEvent]:
+    """`messages` mode, payload is (chunk, metadata): text chunks become `token` events.
+
+    AIMessage also covers AIMessageChunk: streamed tokens, plus whole messages a node wrote without
+    streaming (e.g. the closing message when the model call limit ends the run).
+    """
+    chunk, _metadata = payload
+    if isinstance(chunk, AIMessage) and chunk.text:
+        yield token_event(chunk.text)
+
+
+def events_from_updates(payload: dict[str, Any]) -> Iterator[ServerSentEvent]:
+    """`updates` mode, payload is {node name: node output}: the tool calls and their results.
 
     Scans every node, not just "tools": middleware also adds tool results (a rejected approval,
     a call blocked by a tool call limit). The same call can show up twice (the approval middleware
     re-emits the model's message), so clients key calls by id.
     """
-    events: list[ServerSentEvent] = []
-    for node_output in update.values():
-        if not isinstance(node_output, dict):
+    for output in payload.values():
+        if not isinstance(output, dict):  # None (a hook changed nothing) or the interrupt tuple
             continue
-        for message in node_output.get("messages", []):
-            if isinstance(message, AIMessage):
-                events.extend(
-                    ServerSentEvent(
-                        event="tool_call", data={"id": call["id"], "tool": call["name"], "args": call["args"]}
-                    )
-                    for call in message.tool_calls
-                )
-            elif isinstance(message, ToolMessage):
-                events.append(
-                    ServerSentEvent(
-                        event="tool_result",
-                        data={
-                            "id": message.tool_call_id,
-                            "tool": message.name,
-                            "content": message.text,
-                            "status": message.status,
-                        },
-                    )
-                )
-    return events
+
+        for message in output.get("messages", []):
+            match message:
+                case AIMessage(tool_calls=calls):
+                    yield from map(tool_call_event, calls)
+                case ToolMessage():
+                    yield tool_result_event(message)
 
 
-def final_answer_from(update: dict[str, Any]) -> str | None:
-    """The text of the last finished AI answer in an `updates` event, if there is one.
-
-    An `updates` event maps node name -> that node's output. A finished answer is an AIMessage with
-    text and no tool calls (an AIMessage *with* tool calls means the agent continues with tools).
-    """
-    answer = None
-    for node_output in update.values():
-        if not isinstance(node_output, dict):
-            continue
-        for message in node_output.get("messages", []):
-            if isinstance(message, AIMessage) and message.text and not message.tool_calls:
-                answer = message.text
-    return answer
+# Open for extension: a new stream mode (e.g. "custom" for progress) is one translator + one entry.
+STREAM_TRANSLATORS = {"messages": events_from_messages, "updates": events_from_updates}
 
 
-async def stream_run(
+async def run_agent(
+    agent: CompiledStateGraph, conversation: Conversation, agent_input: Any
+) -> AsyncIterator[ServerSentEvent]:
+    """Runs the agent on the conversation's thread, yielding its progress as SSE events."""
+    async for mode, payload in agent.astream(
+        agent_input,
+        config=thread_config(conversation),
+        context=AgentContext(tenant_id=conversation.tenant_id),
+        stream_mode=list(STREAM_TRANSLATORS),
+    ):
+        for event in STREAM_TRANSLATORS[mode](payload):
+            yield event
+
+
+@dataclass(frozen=True)
+class RunOutcome:
+    """How a run ended: paused on tool calls waiting for approval, or finished with an answer."""
+
+    pending_actions: list[dict[str, Any]]
+    answer: str
+
+    @property
+    def paused(self) -> bool:
+        return bool(self.pending_actions)
+
+    @property
+    def history_text(self) -> str:
+        """What the chat history keeps: the approval request if paused (the answer comes, and is
+        saved, after the resume), else the answer."""
+        if self.paused:
+            return "Waiting for your approval:\n" + "\n".join(f"- {describe_action(a)}" for a in self.pending_actions)
+        return self.answer
+
+    def end_event(self, conversation: Conversation) -> ServerSentEvent:
+        """The stream's last event."""
+        if self.paused:
+            return approval_event(conversation, self.pending_actions)
+        return ServerSentEvent(event="done", data={})
+
+
+async def outcome_of(agent: CompiledStateGraph, conversation: Conversation) -> RunOutcome:
+    """Reads how the last run ended from the conversation's checkpoint."""
+    state = await agent.aget_state(thread_config(conversation))
+
+    return RunOutcome(
+        pending_actions=[action for interrupt in state.interrupts for action in actions_from(interrupt.value)],
+        answer=state.values["messages"][-1].text,
+    )
+
+
+async def save_user_message(db_session: AsyncSession, conversation: Conversation, text: str | None) -> None:
+    if text is not None:
+        await add_message(db_session, conversation.id, MessageRole.USER, text)
+
+
+async def save_outcome(db_session: AsyncSession, conversation: Conversation, outcome: RunOutcome) -> None:
+    if outcome.history_text:
+        await add_message(db_session, conversation.id, MessageRole.ASSISTANT, outcome.history_text)
+
+
+async def stream_turn(
     agent: CompiledStateGraph,
     db_session: AsyncSession,
     conversation: Conversation,
     agent_input: Any,
     user_message: str | None,
 ) -> AsyncIterator[ServerSentEvent]:
-    """Run the agent on the conversation's thread and stream it as SSE events:
-    `token`, `tool_call` and `tool_result` as they happen, then one of `done`,
-    `approval_required` (the run paused) or `error`.
+    """One chat turn as SSE: `token`, `tool_call` and `tool_result` while the agent runs, then
+    `done`, `approval_required` (the run paused) or `error`.
 
-    Saves `user_message` first (if given) and the final answer once the run finishes, using the
-    request's database session. (Tools open their own: parallel tool calls must not share one.)
+    Saves to the history with the request's database session. (Tools open their own: parallel
+    tool calls must not share one.)
     """
-    tenant_id = conversation.tenant_id
-    final_answer: str | None = None
-    approval_actions: list[dict[str, Any]] = []
     try:
-        if user_message is not None:
-            await add_message(db_session, conversation.id, MessageRole.USER, user_message)
-        # Two modes at once: "messages" for tokens as they are generated, "updates" for each node's
-        # complete output (the whole final message, and the approval interrupt).
-        async for mode, payload in agent.astream(
-            agent_input,
-            config=thread_config(conversation),
-            context=AgentContext(tenant_id=tenant_id),
-            stream_mode=["messages", "updates"],
-        ):
-            if mode == "messages":
-                chunk, _metadata = payload
-                # AIMessage also covers AIMessageChunk: streamed tokens, plus whole messages added by
-                # middleware (e.g. the closing message when the model call limit ends the run).
-                if isinstance(chunk, AIMessage) and chunk.text:
-                    yield ServerSentEvent(event="token", data={"content": chunk.text})
-            elif mode == "updates":
-                if "__interrupt__" in payload:
-                    # HumanInTheLoopMiddleware paused the run before mutate_ticket executes.
-                    for interrupt in payload["__interrupt__"]:
-                        approval_actions.extend(actions_from(interrupt.value))
-                else:
-                    for event in tool_events_from(payload):
-                        yield event
-                    final_answer = final_answer_from(payload) or final_answer
-        if approval_actions:
-            # Paused: save the approval request, so the history shows what was asked. The final
-            # answer comes (and is saved) after the resume.
-            request = "Waiting for your approval:\n" + "\n".join(f"- {describe_action(a)}" for a in approval_actions)
-            await add_message(db_session, conversation.id, MessageRole.ASSISTANT, request)
-        elif final_answer is not None:
-            await add_message(db_session, conversation.id, MessageRole.ASSISTANT, final_answer)
-    except openai.RateLimitError:
-        logger.warning("OpenAI rate limit hit")
-        yield error_event("Rate limited, try again.")
-        return
-    except openai.APIConnectionError:
-        # Also covers openai.APITimeoutError.
-        logger.exception("Could not reach OpenAI")
-        yield error_event("LLM provider unreachable.")
-        return
-    except openai.APIStatusError as error:
-        logger.error("OpenAI returned {}: {}", error.status_code, error.message)
-        yield error_event("LLM provider error.")
-        return
-    except GraphRecursionError:
-        logger.warning("Agent hit the recursion limit in conversation {}", conversation.id)
-        yield error_event("The agent took too many steps and was stopped. Try a simpler request.")
-        return
-    except SQLAlchemyError:
-        logger.exception("Database error in conversation {}", conversation.id)
-        yield error_event("Could not save the conversation.")
-        return
-    except Exception:
+        await save_user_message(db_session, conversation, user_message)
+
+        async for event in run_agent(agent, conversation, agent_input):
+            yield event
+
+        outcome = await outcome_of(agent, conversation)
+        await save_outcome(db_session, conversation, outcome)
+    except Exception as error:
         # Headers (200) are already sent once streaming starts, so report the failure in-band.
-        logger.exception("Agent stream failed in conversation {}", conversation.id)
-        yield error_event("The agent failed to answer.")
-        return
-    if approval_actions:
+        yield error_event(failure_message(error, conversation.id))
+    else:
         logger.info(
-            "Conversation {} (tenant {}) waits for approval of {}", conversation.id, tenant_id, approval_actions
+            "Run in conversation {} (tenant {}) {}",
+            conversation.id, conversation.tenant_id, "paused for approval" if outcome.paused else "finished",
         )
-        yield approval_event(conversation, approval_actions)
-        return
-    logger.info("Chat answer finished in conversation {} (tenant {})", conversation.id, tenant_id)
-    yield ServerSentEvent(event="done", data={})
+        yield outcome.end_event(conversation)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -311,7 +344,7 @@ async def chat(
     db_session: AsyncSession = Depends(get_session),
     agent: CompiledStateGraph = Depends(get_agent),
 ) -> AsyncIterator[ServerSentEvent]:
-    """Send a message and stream the answer (see `stream_run` for the events).
+    """Send a message and stream the answer (see `stream_turn` for the events).
 
     While an approval is pending, answers with the same `approval_required` event again and ignores
     the message: running the agent would leave the paused tool call unanswered.
@@ -327,7 +360,7 @@ async def chat(
     )
     # Only the new message: the checkpointer already holds the conversation's earlier messages.
     agent_input = {"messages": [HumanMessage(body.message)]}
-    async for event in stream_run(agent, db_session, conversation, agent_input, user_message=body.message):
+    async for event in stream_turn(agent, db_session, conversation, agent_input, user_message=body.message):
         yield event
 
 
@@ -357,5 +390,5 @@ async def resume(
         for decision in body.decisions
     ]
     agent_input = Command(resume={"decisions": decisions})
-    async for event in stream_run(agent, db_session, conversation, agent_input, user_message=None):
+    async for event in stream_turn(agent, db_session, conversation, agent_input, user_message=None):
         yield event

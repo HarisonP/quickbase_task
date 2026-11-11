@@ -7,7 +7,7 @@ export type Tenant = (typeof TENANTS)[number];
 
 export type Decision = "approve" | "reject";
 
-/** One event of a chat stream, as sent by the backend's `stream_run`. */
+/** One event of a chat stream, as sent by the backend's `stream_turn`. */
 export type ChatEvent =
   | { event: "token"; data: { content: string } }
   | { event: "tool_call"; data: { id: string; tool: string; args: Record<string, unknown> } }
