@@ -47,6 +47,8 @@ class MessageResponse(BaseModel):
 
     role: MessageRole
     content: str
+    # Only on an approval request: the tool calls it asked about. Pending while it is the last message.
+    actions: list[dict[str, Any]] | None
     created_at: datetime
 
 
@@ -87,6 +89,14 @@ def describe_action(action: dict[str, Any]) -> str:
     fields = ", ".join(f"{name}={value}" for name, value in (args.get("fields") or {}).items())
     line = f"{args.get('action')} ticket {args.get('ticket_id')}"
     return f"{line}: {fields}" if fields else line
+
+
+def describe_decisions(actions: list[dict[str, Any]], decisions: list[Literal["approve", "reject"]]) -> str:
+    """The user's answer to an approval request, for the chat history, e.g. "Approved: update ticket 3: status=open"."""
+    verbs = {"approve": "Approved", "reject": "Rejected"}
+    return "\n".join(
+        f"{verbs[decision]}: {describe_action(action)}" for action, decision in zip(actions, decisions, strict=True)
+    )
 
 
 async def get_owned_conversation(
@@ -254,14 +264,19 @@ async def outcome_of(agent: CompiledStateGraph, conversation: Conversation) -> R
     )
 
 
-async def save_user_message(db_session: AsyncSession, conversation: Conversation, text: str | None) -> None:
-    if text is not None:
-        await add_message(db_session, conversation.id, MessageRole.USER, text)
+async def save_user_message(db_session: AsyncSession, conversation: Conversation, text: str) -> None:
+    await add_message(db_session, conversation.id, MessageRole.USER, text)
 
 
 async def save_outcome(db_session: AsyncSession, conversation: Conversation, outcome: RunOutcome) -> None:
     if outcome.history_text:
-        await add_message(db_session, conversation.id, MessageRole.ASSISTANT, outcome.history_text)
+        await add_message(
+            db_session,
+            conversation.id,
+            MessageRole.ASSISTANT,
+            outcome.history_text,
+            actions=outcome.pending_actions or None,
+        )
 
 
 async def stream_turn(
@@ -269,10 +284,13 @@ async def stream_turn(
     db_session: AsyncSession,
     conversation: Conversation,
     agent_input: Any,
-    user_message: str | None,
+    user_message: str,
 ) -> AsyncIterator[ServerSentEvent]:
     """One chat turn as SSE: `token`, `tool_call` and `tool_result` while the agent runs, then
     `done`, `approval_required` (the run paused) or `error`.
+
+    `user_message` is the user's side of the turn for the history: their text, or their approval
+    decisions on a resume.
 
     Saves to the history with the request's database session. (Tools open their own: parallel
     tool calls must not share one.)
@@ -332,7 +350,8 @@ async def remove_conversation(
 async def get_messages(
     conversation: Conversation = Depends(get_owned_conversation), db_session: AsyncSession = Depends(get_session)
 ) -> list[MessageResponse]:
-    """Chat history: the user's messages and the agent's final answers, in order."""
+    """Chat history, in order: the user's messages, the agent's final answers and its approval
+    requests (with their `actions`; the last message's are still pending)."""
     messages = await list_messages(db_session, conversation.tenant_id, conversation.id)
     return [MessageResponse.model_validate(message) for message in messages]
 
@@ -390,5 +409,8 @@ async def resume(
         for decision in body.decisions
     ]
     agent_input = Command(resume={"decisions": decisions})
-    async for event in stream_turn(agent, db_session, conversation, agent_input, user_message=None):
+    # The decision is the user's turn: saved before the run, so the approval request stops being the
+    # last message (and stops showing as pending) even if the run is cut off, e.g. by a page reload.
+    user_message = describe_decisions(actions, body.decisions)
+    async for event in stream_turn(agent, db_session, conversation, agent_input, user_message=user_message):
         yield event
