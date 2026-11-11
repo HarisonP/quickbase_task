@@ -18,9 +18,26 @@ import type {
   ToolCallMessagePart,
 } from "@assistant-ui/react";
 
-import { type ChatEvent, type Decision, streamChat, streamResume, type Tenant } from "../api";
+import { type ApprovalAction, type ChatEvent, type Decision, streamChat, streamResume, type Tenant } from "../api";
 
-const REQUIRES_APPROVAL = { type: "requires-action", reason: "tool-calls" } as const;
+export const REQUIRES_APPROVAL = { type: "requires-action", reason: "tool-calls" } as const;
+
+/**
+ * A tool-call part waiting for approval, built from the action alone: for a call that wasn't
+ * streamed in this run (a reopened or reloaded conversation that was already waiting).
+ */
+export function approvalPart(action: ApprovalAction): ToolCallMessagePart {
+  const id = crypto.randomUUID();
+
+  return {
+    type: "tool-call",
+    toolCallId: id,
+    toolName: action.tool,
+    args: action.args as ToolCallMessagePart["args"],
+    argsText: JSON.stringify(action.args),
+    approval: { id },
+  };
+}
 
 /** `onTicketsChanged`: called when mutate_ticket returns, so the board can reload the tickets. */
 export function createAdapter(tenant: Tenant, conversationId: string, onTicketsChanged: () => void): ChatModelAdapter {
@@ -155,7 +172,7 @@ class ContentBuilder {
   }
 
   /** Marks the calls waiting for approval: the first unanswered call of each action's tool, in order. */
-  private requestApprovals(actions: { tool: string; args: unknown }[]) {
+  private requestApprovals(actions: ApprovalAction[]) {
     for (const action of actions) {
       const index = this.parts.findIndex(
         (part) =>
@@ -173,16 +190,7 @@ class ContentBuilder {
 
       // Not streamed in this run: a reopened conversation that was already waiting (the backend
       // re-sends the pending approval). Show the call from the event, so it can be decided.
-      const id = crypto.randomUUID();
-      const part: ToolCallMessagePart = {
-        type: "tool-call",
-        toolCallId: id,
-        toolName: action.tool,
-        args: action.args as ToolCallMessagePart["args"],
-        argsText: JSON.stringify(action.args),
-        approval: { id },
-      };
-      this.parts = [...this.parts, part];
+      this.parts = [...this.parts, approvalPart(action)];
     }
   }
 

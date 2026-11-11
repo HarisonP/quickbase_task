@@ -1,6 +1,7 @@
 """Tenant-scoped conversation queries. Reads take the tenant, so another tenant's data is never returned."""
 
 import uuid
+from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,7 +57,16 @@ async def list_messages(db_session: AsyncSession, tenant_id: str, conversation_i
     return list(result)
 
 
-async def add_message(db_session: AsyncSession, conversation_id: uuid.UUID, role: MessageRole, content: str) -> None:
-    """Save a message. Only call it for a conversation already checked to belong to the caller."""
-    db_session.add(Message(conversation_id=conversation_id, role=role, content=content))
+async def add_message(
+    db_session: AsyncSession,
+    conversation_id: uuid.UUID,
+    role: MessageRole,
+    content: str,
+    actions: list[dict[str, Any]] | None = None,
+) -> None:
+    """Save a message. Only call it for a conversation already checked to belong to the caller.
+
+    `actions`: only for an approval request, the tool calls it asks about.
+    """
+    db_session.add(Message(conversation_id=conversation_id, role=role, content=content, actions=actions))
     await db_session.commit()

@@ -13,8 +13,8 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { useEffect, useMemo, useState } from "react";
 import remarkGfm from "remark-gfm";
 
-import { listMessages, type Tenant } from "../api";
-import { createAdapter } from "./adapter";
+import { listMessages, type SavedMessage, type Tenant } from "../api";
+import { approvalPart, createAdapter, REQUIRES_APPROVAL } from "./adapter";
 import { MutateTicketCall, ToolCall } from "./ToolCall";
 
 type ChatProps = { tenant: Tenant; conversationId: string; onTicketsChanged: () => void };
@@ -30,7 +30,7 @@ export function Chat({ tenant, conversationId, onTicketsChanged }: ChatProps) {
     listMessages(tenant, conversationId)
       .then((messages) => {
         if (cancelled) return;
-        setHistory(messages.map((m) => ({ role: m.role, content: m.content, createdAt: new Date(m.created_at) })));
+        setHistory(messages.map((message, i) => toThreadMessage(message, i === messages.length - 1)));
       })
       .catch((reason: unknown) => !cancelled && setError(String(reason)));
 
@@ -44,6 +44,20 @@ export function Chat({ tenant, conversationId, onTicketsChanged }: ChatProps) {
   return (
     <ChatThread tenant={tenant} conversationId={conversationId} onTicketsChanged={onTicketsChanged} history={history} />
   );
+}
+
+/**
+ * A saved message as assistant-ui shows it. An approval request that is the last message is still
+ * pending: it becomes the tool calls with the approval modal, as during the live run. Approving
+ * then resumes the run through the adapter. An earlier, already answered one stays text.
+ */
+function toThreadMessage(message: SavedMessage, isLast: boolean): ThreadMessageLike {
+  const createdAt = new Date(message.created_at);
+
+  if (isLast && message.actions) {
+    return { role: "assistant", content: message.actions.map(approvalPart), status: REQUIRES_APPROVAL, createdAt };
+  }
+  return { role: message.role, content: message.content, createdAt };
 }
 
 function ChatThread({

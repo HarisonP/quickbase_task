@@ -7,12 +7,12 @@ export type Tenant = (typeof TENANTS)[number];
 
 export type Decision = "approve" | "reject";
 
-/** One event of a chat stream, as sent by the backend's `stream_run`. */
+/** One event of a chat stream, as sent by the backend's `stream_turn`. */
 export type ChatEvent =
   | { event: "token"; data: { content: string } }
   | { event: "tool_call"; data: { id: string; tool: string; args: Record<string, unknown> } }
   | { event: "tool_result"; data: { id: string; tool: string; content: string; status: "success" | "error" } }
-  | { event: "approval_required"; data: { conversation_id: string; actions: { tool: string; args: unknown }[] } }
+  | { event: "approval_required"; data: { conversation_id: string; actions: ApprovalAction[] } }
   | { event: "done"; data: Record<string, never> }
   | { event: "error"; data: { message: string } };
 
@@ -89,8 +89,19 @@ export async function updateTicket(tenant: Tenant, ticketId: number, changes: Ti
 
 export type Conversation = { id: string; created_at: string };
 
-/** A saved chat message: the user's messages and the agent's final answers (no tool calls). */
-export type SavedMessage = { role: "user" | "assistant"; content: string; created_at: string };
+/** A tool call waiting for (or once asked for) the user's approval. */
+export type ApprovalAction = { tool: string; args: unknown };
+
+/**
+ * A saved chat message: the user's messages, the agent's final answers and its approval requests.
+ * `actions` is set only on an approval request; it is still pending while it is the last message.
+ */
+export type SavedMessage = {
+  role: "user" | "assistant";
+  content: string;
+  actions: ApprovalAction[] | null;
+  created_at: string;
+};
 
 export async function createConversation(tenant: Tenant): Promise<Conversation> {
   const response = await post(tenant, "/api/conversations", {});
