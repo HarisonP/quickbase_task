@@ -44,7 +44,8 @@ body {
 
 .app-panes {
   display: grid;
-  grid-template-columns: 200px 1fr 1fr;
+  /* minmax(0, …): a pane may shrink below its content's width, so a long tool-call line can't squeeze the others. */
+  grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
   flex: 1;
   min-height: 0;
@@ -156,7 +157,7 @@ button:disabled {
 
 .board-columns {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   flex: 1;
   min-height: 0;
@@ -450,6 +451,7 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 6px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Approval modal */
